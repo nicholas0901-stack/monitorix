@@ -1,0 +1,122 @@
+services:
+
+  # ─── METRICS AGENT (Spring Boot) ───
+  agent:
+    build: ./agent
+    container_name: monitorix-agent
+    ports:
+      - "8080:8080"
+    environment:
+          - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/gateway_db
+          - JWT_SECRET=MyS3cur3S3cr3tK3yF0rJWTT0k3nV4l1d4t10n2024
+          - JAVA_OPTS=-Xmx256m -Xms128m
+          - LOGSTASH_HOST=logstash
+          - LOGSTASH_PORT=5000
+    networks:
+      - monitorix-net
+    restart: unless-stopped
+
+  # ─── PROMETHEUS ───
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monitorix-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitorix-net
+    restart: unless-stopped
+
+  # ─── GRAFANA ───
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monitorix-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=monitorix123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitorix-net
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ─── ELASTICSEARCH ───
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    container_name: monitorix-elasticsearch
+    ports:
+      - "9200:9200"
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - monitorix-net
+    restart: unless-stopped
+
+  # ─── LOGSTASH ───
+  logstash:
+    image: logstash:8.13.4
+    container_name: monitorix-logstash
+    ports:
+      - "5044:5044"
+      - "5000:5000/tcp"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+    networks:
+      - monitorix-net
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ─── KIBANA ───
+  kibana:
+    image: kibana:8.13.4
+    container_name: monitorix-kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - monitorix-net
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ─── REACT FRONTEND ───
+  frontend:
+    build: ./frontend
+    container_name: monitorix-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - monitorix-net
+    depends_on:
+      - agent
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  elasticsearch-data:
+
+networks:
+  monitorix-net:
+    driver: bridge
